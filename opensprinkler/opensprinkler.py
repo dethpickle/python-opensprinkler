@@ -9,12 +9,12 @@
 from __future__ import print_function
 from bs4 import BeautifulSoup
 import logging
-import multiprocessing
 import os
 import json
 import requests
 import time
 from six.moves.urllib.parse import quote
+from urllib import urlencode
 
 
 logger = logging.getLogger(__name__)
@@ -35,7 +35,7 @@ CONFIG_FILE = os.path.expanduser('~/.dlipower.conf')
 
 
 def _call_it(params):   # pragma: no cover
-    """indirect caller for instance methods and multiprocessing"""
+    """indirect caller for instance methods"""
     instance, name, args = params
     kwargs = {}
     return getattr(instance, name)(*args, **kwargs)
@@ -125,47 +125,30 @@ class Station(object):
 
 
 class OpenSprinkler(object):
-    """ Powerswitch class to manage the Digital Loggers Web power switch """
+    """ Powerswitch class to manage the OpenSprinker device """
     __len = 0
 
-    def __init__(self, userid=None, password=None, hostname=None, timeout=None,
-                 cycletime=None, retries=None):
+    def __init__(self, password=None, hostname=None, defaultstationruntime=10,
+                 fulldatarefresh=300):
         """
         Class initializaton
         """
-        if not retries:
-            retries = RETRIES
-        config = self.load_configuration()
-        if retries:
-            self.retries = retries
-        if userid:
-            self.userid = userid
-        else:
-            self.userid = config['userid']
-        if password:
-            self.password = password
-        else:
-            self.password = config['password']
-        if hostname:
-            self.hostname = hostname
-        else:
-            self.hostname = config['hostname']
-        if timeout:
-            self.timeout = float(timeout)
-        else:
-            self.timeout = config['timeout']
-        if cycletime:
-            self.cycletime = float(cycletime)
-        else:
-            self.cycletime = config['cycletime']
-        self._is_admin = True
+        self.password = password
+        self.hostname = hostname
+        self.defaultruntime = defaultruntime
+        self.fulldatarefresh = fulldatarefresh
+        response = self.getfullstatus()
+            if not response:
+                raise OpSprException('Could not contact OpenSprinkler host')
+
+
 
     def __len__(self):
         """
         :return: Number of stations on the switch
         """
         if self.__len == 0:
-            self.__len = len(self.statuslist())
+            self.__len = self.__lastfullresponse['status']['nstations']
         return self.__len
 
     def __repr__(self):
@@ -173,7 +156,7 @@ class OpenSprinkler(object):
         display the representation
         """
         if not self.statuslist():
-            return "Digital Loggers Web Powerswitch " \
+            return "OpenSprinkler " \
                    "%s (UNCONNECTED)" % self.hostname
         output = 'OpenSprinkler at %s\n' \
                  'Station\t%-15.15s\tState\n' % (self.hostname, 'Name')
@@ -186,10 +169,10 @@ class OpenSprinkler(object):
         __repr__ in an html table format
         """
         if not self.statuslist():
-            return "Digital Loggers Web Powerswitch " \
+            return "OpenSprinkler " \
                    "%s (UNCONNECTED)" % self.hostname
         output = '<table>' \
-                 '<tr><th colspan="3">DLI Web Powerswitch at %s</th></tr>' \
+                 '<tr><th colspan="3">OpenSprinkler at %s</th></tr>' \
                  '<tr>' \
                  '<th>Station Number</th>' \
                  '<th>Station Name</th>' \
@@ -218,42 +201,14 @@ class OpenSprinkler(object):
             return stations[0]
         return stations
 
-    def load_configuration(self):
-        """ Return a configuration dictionary """
-        if os.path.isfile(CONFIG_FILE):
-            file_h = open(CONFIG_FILE, 'r')
-            try:
-                config = json.load(file_h)
-            except ValueError:
-                # Failed
-                return CONFIG_DEFAULTS
-            file_h.close()
-            return config
-        return CONFIG_DEFAULTS
-
-    def save_configuration(self):
-        """ Update the configuration file with the object's settings """
-        # Get the configuration from the config file or set to the defaults
-        config = self.load_configuration()
-
-        # Overwrite the objects configuration over the existing config values
-        config['userid'] = self.userid
-        config['password'] = self.password
-        config['hostname'] = self.hostname
-        config['timeout'] = self.timeout
-
-        # Write it to disk
-        file_h = open(CONFIG_FILE, 'w')
-        # Make sure the file perms are correct before we write data
-        # that can include the password into it.
-        os.fchmod(file_h.fileno(), 0o0600)
-        if file_h:
-            json.dump(config, file_h, sort_keys=True, indent=4)
-            file_h.close()
-        else:
-            raise OpSprException(
-                'Unable to open configuration file for write'
-            )
+    def getfullstatus(self)
+        if (self.__lastfullresponse["settings"]["devt"] +
+            self.fulldatarefresh) < time.time():
+            response = self.geturl('ja')
+            if response.status_code != 200:
+                return False
+            self.__lastfullresponse = response.json()
+        return True
 
     def verify(self):
         """ Verify we can reach the switch, returns true if ok """
@@ -261,11 +216,13 @@ class OpenSprinkler(object):
             return True
         return False
 
-    def geturl(self, url='index.htm'):
-        """ Get a URL from the userid/password protected powerswitch page
+    def geturl(self, url='js', commands=None):
+        """ Get a URL from the password protected opensprinkler page
             Return None on failure
         """
-        full_url = "http://%s/%s" % (self.hostname, url)
+        full_url = "http://%s/%s?pw=%s" % (self.hostname, url, self.password)
+        if not commands:
+            full_url = full_url + commands
         result = None
         request = None
         for i in range(0, self.retries):
@@ -273,7 +230,7 @@ class OpenSprinkler(object):
                 request = requests.get(full_url, auth=(self.userid, self.password,),  timeout=self.timeout)
             except requests.exceptions.RequestException as e:
                 logger.warning("Request timed out - %d retries left.", self.retries - i - 1)
-                logger.debug("Catched exception %s", str(e))
+                logger.debug("Caught exception %s", str(e))
                 continue
             if request.status_code == 200:
                 result = request.content
@@ -301,22 +258,18 @@ class OpenSprinkler(object):
             raise OpSprException('Station name \'%s\' unknown' % station)
 
 
+    def station_name_list()
+        return self.__lastfullresponse["stations"]["snames"]
+
     def get_station_name(self, station=0):
         """ Return the name of the station """
-        station = self.determine_station(station)
-        stations = self.statuslist()
-        if stations and station:
-            for plug in stations:
-                if int(plug[0]) == station:
-                    return plug[1]
-        return 'Unknown'
+        return self.statuslist()[station][2]
 
     def set_station_name(self, station=0, name="Unknown"):
         """ Set the name of an station """
-        self.determine_station(station)
+        commandlist = '&s%s=%s' % (station, urlencode(name))
         self.geturl(
-            url='unitnames.cgi?outname%s=%s' % (station, quote(name))
-        )
+            url='cs', commands=commandlist)
         return self.get_station_name(station) == name
 
     def off(self, station=0):
@@ -324,115 +277,52 @@ class OpenSprinkler(object):
             False = Success
             True = Fail
         """
-        self.geturl(url='station?%d=OFF' % self.determine_station(station))
+        commandlist = '&sid=%s&en=0&t=%s' % (station, duration)
+        self.geturl(url='cm', commands=commandlist)
         return self.status(station) != 'OFF'
 
-    def on(self, station=0):
+    def on(self, station=0, duration=self.defaultruntime):
         """ Turn on power to an station
             False = Success
             True = Fail
         """
-        self.geturl(url='station?%d=ON' % self.determine_station(station))
+        commandlist = '&sid=%s&en=1&t=%s' % (station, duration)
+        self.geturl(url='cm', commands=commandlist)
         return self.status(station) != 'ON'
-
-    def cycle(self, station=0):
-        """ Cycle power to an station
-            False = Power off Success
-            True = Power off Fail
-            Note, does not return any status info about the power on part of
-            the operation by design
-        """
-        if self.off(station):
-            return True
-        time.sleep(self.cycletime)
-        self.on(station)
-        return False
 
     def statuslist(self):
         """ Return the status of all stations in a list,
-        each item will contain 3 items plugnumber, hostname and state  """
-        stations = []
-        url = self.geturl('index.htm')
-        if not url:
+        each item will contain 3 items station number, state and
+        station name  """
+        response = self.geturl('js')
+        if not response:
             return None
-        soup = BeautifulSoup(url, "html.parser")
-        # Get the root of the table containing the port status info
-        try:
-            root = soup.findAll('td', text='1')[0].parent.parent.parent
-        except IndexError:
-            # Finding the root of the table with the station info failed
-            # try again assuming we're seeing the table for a user
-            # account insteaed of the admin account (tables are different)
-            try:
-                self._is_admin = False
-                root = soup.findAll('th', text='#')[0].parent.parent.parent
-            except IndexError:
-                return None
-        for temp in root.findAll('tr'):
-            columns = temp.findAll('td')
-            if len(columns) == 5:
-                plugnumber = columns[0].string
-                hostname = columns[1].string
-                state = columns[2].find('font').string.upper()
-                stations.append([int(plugnumber), hostname, state])
-        if self.__len == 0:
-            self.__len = len(stations)
+        data = response.json()
+        states = data["status"]["sn"]
+        stations = zip(range(0,data["status"]["nstations"]),
+            ['ON' if x==1 else 'OFF' for x in states],
+            data["stations"]["snames"])
         return stations
 
     def printstatus(self):
         """ Print the status off all the stations as a table to stdout """
-        if not self.statuslist():
+        data = self.statuslist()
+        if not data:
             print(
-                "Unable to communicate to the Web power "
-                "switch at %s" % self.hostname
+                "Unable to communicate to the OpenSprinkler "
+                "at %s" % self.hostname
             )
             return None
         print('Station\t%-15.15s\tState' % 'Name')
-        for item in self.statuslist():
+        for item in data:
             print('%d\t%-15.15s\t%s' % (item[0], item[1], item[2]))
         return
 
     def status(self, station=1):
         """
-        Return the status of an station, returned value will be one of:
-        ON, OFF, Unknown
+        Return the status of a given station
         """
-        station = self.determine_station(station)
-        stations = self.statuslist()
-        if stations and station:
-            for plug in stations:
-                if plug[0] == station:
-                    return plug[2]
-        return 'Unknown'
-
-    def command_on_stations(self, command, stations):
-        """
-        If a single station is passed, handle it as a single station and
-        pass back the return code.  Otherwise run the operation on multiple
-        stations in parallel the return code will be failure if any operation
-        fails.  Operations that return a string will return a list of strings.
-        """
-        if len(stations) == 1:
-            result = getattr(self, command)(stations[0])
-            if isinstance(result, bool):
-                return result
-            else:
-                return [result]
-        pool = multiprocessing.Pool(processes=len(stations))
-        result = [
-            value for value in pool.imap(
-                _call_it,
-                [(self, command, (station, )) for station in stations],
-                chunksize=1
-            )
-        ]
-        if isinstance(result[0], bool):
-            for value in result:
-                if value:
-                    return True
-            return result[0]
-        return result
-
+        return self.statuslist()[station][1]
 
 if __name__ == "__main__":
     OpenSprinkler().printstatus()
