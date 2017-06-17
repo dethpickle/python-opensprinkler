@@ -195,14 +195,16 @@ class OpenSprinkler(object):
             return stations[0]
         return stations
 
-    def getfullstatus(self):
-        if (self.lastfullresponse["settings"]["devt"] +
-            self.fulldatarefresh) < time.time():
+    def getfullstatus(self, force=False):
+        if ((self.lastfullresponse["settings"]["devt"] +
+            self.fulldatarefresh) > time.time()) or force:
             response = self.geturl('ja')
-        if response.status_code != 200:
-            return False
-        self.lastfullresponse = response.json()
-        return response.json()
+            if response.status_code != 200:
+                return False
+            self.lastfullresponse = response.json()
+            return response.json()
+        else:
+            return self.lastfullresponse
 
     def verify(self):
         """ Verify we can reach the switch, returns true if ok """
@@ -260,10 +262,10 @@ class OpenSprinkler(object):
 
     def set_station_name(self, station=0, name="Unknown"):
         """ Set the name of an station """
-        commandlist = [('s' + str(station),
+        commandlist = [('s' + str(station), \
             name[:self.lastfullresponse['stations']['maxlen']])]
-        self.geturl(
-            url='cs', commands=commandlist)
+        self.geturl(url='cs', commands=commandlist)
+        self.getfullstatus(True)
         return self.get_station_name(station) == name
 
     def off(self, station=0):
@@ -273,6 +275,8 @@ class OpenSprinkler(object):
         """
         commandlist = [('sid', station),('en',0)]
         self.geturl(url='cm', commands=commandlist)
+        self.getfullstatus(True)
+
         return self.status(station) != 'OFF'
 
     def on(self, station=0, duration=None):
@@ -284,6 +288,8 @@ class OpenSprinkler(object):
             duration = self.defaultruntime
         commandlist = [('sid', station),('en',1),('t', duration)]
         self.geturl(url='cm', commands=commandlist)
+        self.getfullstatus(True)
+
         return self.status(station) != 'ON'
 
     def statuslist(self):
