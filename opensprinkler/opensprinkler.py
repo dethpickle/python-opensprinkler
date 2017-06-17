@@ -23,15 +23,6 @@ logger = logging.getLogger(__name__)
 # Global settings
 TIMEOUT = 20
 RETRIES = 3
-CYCLETIME = 3
-CONFIG_DEFAULTS = {
-    'timeout': TIMEOUT,
-    'cycletime': CYCLETIME,
-    'userid': 'admin',
-    'password': '4321',
-    'hostname': '192.168.0.100'
-}
-CONFIG_FILE = os.path.expanduser('~/.dlipower.conf')
 
 
 def _call_it(params):   # pragma: no cover
@@ -54,8 +45,8 @@ class Station(object):
     """
     use_description = True
 
-    def __init__(self, switch, station_number, description=None, state=None):
-        self.switch = switch
+    def __init__(self, device, station_number, description=None, state=None):
+        self.device = device
         self.station_number = station_number
         self.description = description
         if not description:
@@ -74,13 +65,13 @@ class Station(object):
         return self.__unicode__()
 
     def __repr__(self):
-        return "<dlipower_station '%s'>" % self.__unicode__()
+        return "<opensprinkler_station '%s'>" % self.__unicode__()
 
     def _repr_html_(self):  # pragma: no cover
         """ Display representation as an html table when running in ipython """
         return u"""<table>
-    <tr><th>Description</th><th>Station Number</th><th>State</th></tr>
-    <tr><td>{0:s}</td><td>{1:s}</td><td>{2:s}</td></tr>
+    <tr><th>Station Name</th><th>Station Number</th><th>State</th></tr>
+    <tr><td>{0:s}</td><td>{1:d}</td><td>{2:s}</td></tr>
 </table>""".format(self.description, self.station_number, self.state)
 
     @property
@@ -89,21 +80,21 @@ class Station(object):
         return self._state
 
     @state.setter
-    def state(self, value):
+    def state(self, value, duration=None):
         """ Set the station state """
         self._state = value
         if value in ['off', 'OFF', '0']:
             self.off()
         if value in ['on', 'ON', '1']:
-            self.on()
+            self.on(duration)
 
     def off(self):
         """ Turn the station off """
-        return self.switch.off(self.station_number)
+        return self.device.off(self.station_number)
 
-    def on(self):
+    def on(self, duration=None):
         """ Turn the station on """
-        return self.switch.on(self.station_number)
+        return self.device.on(self.station_number, duration=duration)
 
     def rename(self, new_name):
         """
@@ -111,12 +102,12 @@ class Station(object):
         :param new_name: New name for the station
         :return:
         """
-        return self.switch.set_station_name(self.station_number, new_name)
+        return self.device.set_station_name(self.station_number, new_name)
 
     @property
     def name(self):
         """ Return the name or description of the station """
-        return self.switch.get_station_name(self.station_number)
+        return self.device.get_station_name(self.station_number)
 
     @name.setter
     def name(self, new_name):
@@ -128,19 +119,22 @@ class OpenSprinkler(object):
     """ Powerswitch class to manage the OpenSprinker device """
     __len = 0
 
-    def __init__(self, password=None, hostname=None, defaultstationruntime=10,
-                 fulldatarefresh=300):
+    def __init__(self, password=None, hostname=None, defaultstationruntime=600,
+                 fulldatarefresh=300, maxretries=RETRIES, timeout=TIMEOUT):
         """
         Class initializaton
         """
         self.password = password
         self.hostname = hostname
-        self.defaultruntime = defaultruntime
+        self.defaultruntime = defaultstationruntime
         self.fulldatarefresh = fulldatarefresh
-        response = self.getfullstatus()
-            if not response:
-                raise OpSprException('Could not contact OpenSprinkler host')
-
+        self.retries = maxretries
+        self.timeout = timeout
+        response = self.geturl('ja')
+        if not response:
+            raise OpSprException('Could not contact OpenSprinkler host')
+        self.lastfullresponse = response.json()
+        return
 
 
     def __len__(self):
@@ -148,7 +142,7 @@ class OpenSprinkler(object):
         :return: Number of stations on the switch
         """
         if self.__len == 0:
-            self.__len = self.__lastfullresponse['status']['nstations']
+            self.__len = self.lastfullresponse['status']['nstations']
         return self.__len
 
     def __repr__(self):
@@ -190,25 +184,25 @@ class OpenSprinkler(object):
         else:
             status = [self.statuslist()[index]]
         for station_status in status:
-            power_station = Station(
-                switch=self,
+            os_station = Station(
+                device=self,
                 station_number=station_status[0],
                 description=station_status[1],
                 state=station_status[2]
             )
-            stations.append(power_station)
+            stations.append(os_station)
         if len(stations) == 1:
             return stations[0]
         return stations
 
-    def getfullstatus(self)
-        if (self.__lastfullresponse["settings"]["devt"] +
+    def getfullstatus(self):
+        if (self.lastfullresponse["settings"]["devt"] +
             self.fulldatarefresh) < time.time():
             response = self.geturl('ja')
-            if response.status_code != 200:
-                return False
-            self.__lastfullresponse = response.json()
-        return True
+        if response.status_code != 200:
+            return False
+        self.lastfullresponse = response.json()
+        return response.json()
 
     def verify(self):
         """ Verify we can reach the switch, returns true if ok """
@@ -216,27 +210,26 @@ class OpenSprinkler(object):
             return True
         return False
 
-    def geturl(self, url='js', commands=None):
+    def geturl(self, url='js', commands=[]):
         """ Get a URL from the password protected opensprinkler page
             Return None on failure
         """
-        full_url = "http://%s/%s?pw=%s" % (self.hostname, url, self.password)
-        if not commands:
-            full_url = full_url + commands
-        result = None
-        request = None
+        params = [('pw', self.password)] + commands
+        full_url = "http://%s/%s" % (self.hostname, url)
+        response = None
         for i in range(0, self.retries):
             try:
-                request = requests.get(full_url, auth=(self.userid, self.password,),  timeout=self.timeout)
+                response = requests.get(full_url, params=params,
+                                        timeout=self.timeout)
             except requests.exceptions.RequestException as e:
-                logger.warning("Request timed out - %d retries left.", self.retries - i - 1)
+                logger.warning("Request timed out - %d retries left.",
+                               self.retries - i - 1)
                 logger.debug("Caught exception %s", str(e))
                 continue
-            if request.status_code == 200:
-                result = request.content
+            if response.status_code == 200:
                 break
-        logger.debug('Response code: %s', request.status_code)
-        return result
+        logger.debug('Response code: %s', response.status_code)
+        return response
 
     def determine_station(self, station=None):
         """ Get the correct station number from the station passed in, this
@@ -252,22 +245,23 @@ class OpenSprinkler(object):
         try:
             station_int = int(station)
             if station_int <= 0 or station_int > self.__len__():
-                raise OpSprException('Station number %d out of range' % station_int)
+                raise OpSprException('Station %d out of range' % station_int)
             return station_int
         except ValueError:
             raise OpSprException('Station name \'%s\' unknown' % station)
 
 
-    def station_name_list()
-        return self.__lastfullresponse["stations"]["snames"]
+    def station_name_list(self):
+        return self.lastfullresponse["stations"]["snames"]
 
     def get_station_name(self, station=0):
         """ Return the name of the station """
-        return self.statuslist()[station][2]
+        return self.statuslist()[station][1]
 
     def set_station_name(self, station=0, name="Unknown"):
         """ Set the name of an station """
-        commandlist = '&s%s=%s' % (station, urlencode(name))
+        commandlist = [('s' + str(station),
+            name[:self.lastfullresponse['stations']['maxlen']])]
         self.geturl(
             url='cs', commands=commandlist)
         return self.get_station_name(station) == name
@@ -277,16 +271,18 @@ class OpenSprinkler(object):
             False = Success
             True = Fail
         """
-        commandlist = '&sid=%s&en=0&t=%s' % (station, duration)
+        commandlist = [('sid', station),('en',0)]
         self.geturl(url='cm', commands=commandlist)
         return self.status(station) != 'OFF'
 
-    def on(self, station=0, duration=self.defaultruntime):
+    def on(self, station=0, duration=None):
         """ Turn on power to an station
             False = Success
             True = Fail
         """
-        commandlist = '&sid=%s&en=1&t=%s' % (station, duration)
+        if not duration:
+            duration = self.defaultruntime
+        commandlist = [('sid', station),('en',1),('t', duration)]
         self.geturl(url='cm', commands=commandlist)
         return self.status(station) != 'ON'
 
@@ -294,14 +290,15 @@ class OpenSprinkler(object):
         """ Return the status of all stations in a list,
         each item will contain 3 items station number, state and
         station name  """
+        self.getfullstatus()
         response = self.geturl('js')
         if not response:
             return None
         data = response.json()
-        states = data["status"]["sn"]
-        stations = zip(range(0,data["status"]["nstations"]),
-            ['ON' if x==1 else 'OFF' for x in states],
-            data["stations"]["snames"])
+        states = data["sn"]
+        stations = zip(range(0, data["nstations"]),
+            self.lastfullresponse["stations"]["snames"],
+            ['ON' if x==1 else 'OFF' for x in states])
         return stations
 
     def printstatus(self):
@@ -313,7 +310,7 @@ class OpenSprinkler(object):
                 "at %s" % self.hostname
             )
             return None
-        print('Station\t%-15.15s\tState' % 'Name')
+        print('Station\t%-15.15s\tStatus' % 'Name')
         for item in data:
             print('%d\t%-15.15s\t%s' % (item[0], item[1], item[2]))
         return
@@ -322,7 +319,7 @@ class OpenSprinkler(object):
         """
         Return the status of a given station
         """
-        return self.statuslist()[station][1]
+        return self.statuslist()[station][2]
 
 if __name__ == "__main__":
     OpenSprinkler().printstatus()

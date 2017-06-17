@@ -1,0 +1,10 @@
+.pyc
+.idea
+dist
+build
+.tox
+opensprinkler.egg-info
+.coverage
+cobertura.xml
+nosetests.xml
+*.pyc
