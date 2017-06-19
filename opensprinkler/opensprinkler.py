@@ -45,13 +45,12 @@ class Station(object):
     """
     use_description = True
 
-    def __init__(self, device, station_number, description=None, state=None):
+    def __init__(self, device, station_number, description=None):
         self.device = device
         self.station_number = station_number
         self.description = description
         if not description:
             self.description = str(station_number)
-        self._state = state
 
     def __unicode__(self):
         name = None
@@ -59,7 +58,7 @@ class Station(object):
             name = '%s' % self.description
         if not name:
             name = '%d' % self.station_number
-        return '%s:%s' % (name, self._state)
+        return '%s(%d):%s' % (name, self.station_number, self.state)
 
     def __str__(self):
         return self.__unicode__()
@@ -77,12 +76,11 @@ class Station(object):
     @property
     def state(self):
         """ Return the station state """
-        return self._state
+        return self.device.status(station=self.station_number)
 
     @state.setter
     def state(self, value, duration=None):
         """ Set the station state """
-        self._state = value
         if value in ['off', 'OFF', '0']:
             self.off()
         if value in ['on', 'ON', '1']:
@@ -187,8 +185,7 @@ class OpenSprinkler(object):
             os_station = Station(
                 device=self,
                 station_number=station_status[0],
-                description=station_status[1],
-                state=station_status[2]
+                description=station_status[1]
             )
             stations.append(os_station)
         if len(stations) == 1:
