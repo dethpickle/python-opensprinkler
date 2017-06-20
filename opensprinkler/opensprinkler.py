@@ -7,14 +7,10 @@
 
 
 from __future__ import print_function
-from bs4 import BeautifulSoup
 import logging
-import os
 import json
 import requests
 import time
-from six.moves.urllib.parse import quote
-from urllib import urlencode
 
 
 logger = logging.getLogger(__name__)
@@ -113,8 +109,8 @@ class Station(object):
         self.rename(new_name)
 
 
-class OpenSprinkler(object):
-    """ Powerswitch class to manage the OpenSprinker device """
+class OSDevice(object):
+    """ Class to manage the OpenSprinker device """
     __len = 0
 
     def __init__(self, password=None, hostname=None, defaultstationruntime=600,
@@ -325,4 +321,4 @@ class OpenSprinkler(object):
         return self.statuslist()[station][2]
 
 if __name__ == "__main__":
-    OpenSprinkler().printstatus()
+    OSDevice().printstatus()

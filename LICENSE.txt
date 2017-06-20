@@ -1,6 +1,6 @@
-Every file in the python-dlipower distribution contain the following license:
+Every file in the python-opensprinkler distribution contain the following license:
 
-Copyright (c) 2009-2015, Dwight Hubbard
+Copyright (c) 2017, David Sergeant
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without modification,
