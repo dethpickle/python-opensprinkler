@@ -295,9 +295,9 @@ class OSDevice(object):
             return None
         data = response.json()
         states = data["sn"]
-        stations = zip(range(0, data["nstations"]),
+        stations = list(zip(range(0, data["nstations"]),
             self.lastfullresponse["stations"]["snames"],
-            ['ON' if x==1 else 'OFF' for x in states])
+            ['ON' if x==1 else 'OFF' for x in states]))
         return stations
 
     def printstatus(self):
