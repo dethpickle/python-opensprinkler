@@ -7,7 +7,6 @@
 
 
 from __future__ import print_function
-import hashlib
 import logging
 import json
 import requests
@@ -119,8 +118,7 @@ class OSDevice(object):
         """
         Class initializaton
         """
-        self.password = hashlib.md5(bytes(password,
-                                          encoding='utf-8')).hexdigest()
+        self.password = password
         self.hostname = hostname
         self.defaultruntime = defaultstationruntime
         self.fulldatarefresh = fulldatarefresh

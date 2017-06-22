@@ -28,9 +28,9 @@ Example
         import opensprinkler
 
         print('Connecting to a OpenSprinkler device at demo.opensprinkler.com')
-        # password is OpenSprinkler password, NOT the md5 hash like the API uses
+        # password is md5 hash of the OpenSprinkler password, like the API uses
         # the demo site password is always 'opendoor'
-        os = opensprinkler.OSDevice(password='opendoor', hostname='demo.opensprinkler.com')
+        os = OpenSprinkler(password='a6d82bced638de3def1e9bbb4983225c', hostname='demo.opensprinkler.com')
 
     Connecting to a OpenSprinkler device at demo.opensprinkler.com
 
